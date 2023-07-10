@@ -3,11 +3,12 @@
 ## Description.
 This is simple react-native application that gets informataion from sheets in google spreadsheets with real time updates and pie charts for each column of selected sheet.
 
-Link with video example: https://www.youtube.com/watch?v=o2RFdhnMXBM
-
 Link with spreadsheets: https://docs.google.com/spreadsheets/d/17FXJ_St91eMQ7Fc3zO4YMMhfzixG5g2wq0a3Mk77XsE/edit#gid=0
 
 # Installation and running.
+
+For making this repo work, please download this repository: 
+https://github.com/AliakseiPaseishvili/google-sheets-backend
 
 Before installation we need to create google api key.
 1. Open: https://console.cloud.google.com/
@@ -111,44 +112,49 @@ For rendering data with better performance we are using `FlatList`, we also know
 ```
 
 For having real-time updates I used the simpliest solution:
-We just added setInterval for our request with getting infomration about sheet data. Why there is no websocket? Because google-spreadsheets doesn't have the api for it. I spent time on investigation about it and thought that we can use App Google script and onEdit method, but it is just impossible to do it with this functionality. 
+We just added setInterval for our websocket send method. On the backend side we make a call to server.
 
-Is corrent funcionality is well optimized? No, it is not. We are limitted by google sheets API.
+Is current funcionality is well optimized? No, it is not. We are limitted by google sheets API.
 
 ```
-export const useGetSheetData = (sheetId: string | undefined, title: string) => {
-  const { values, arrayLength } = useSelector(mapStateToProps(title), shallowEqual);
-  const dispatch = useDispatch();
-  useEffect(() => {
-    const getSheetData = async () => {
-      try {
-        if (sheetId) {
-          const result = await endpoints.getSheetData({
-            urlKeys: {
-              sheetId,
-              sheetName: title,
-            },
-          });
-          const { values } = result.data;
-          const arrayLength = Math.max(...values.map((array) => array.length));
+useEffect(() => {
+    const ws = new WebSocket(`ws://localhost:3000/${sheetId}/${title}`);
+    let interval: NodeJS.Timer;
 
-          dispatch(
-            saveSheetValues({
-              values,
-              arrayLength,
-              title,
-            })
-          );
-        }
-      } catch (error) {
-        console.error(error);
-      }
+    ws.onopen = () => {
+      ws.send('message');
+      interval = setInterval(() => ws.send('message'), 10000)
     };
 
-    const interval = setInterval(async () => getSheetData(), 10000);
-    
-    return () => clearInterval(interval);
-  }, [sheetId]);
+    ws.onmessage = (event) => {
+      const data =JSON.parse(event.data)as SheetData;
+      const { values } =  data;
+      const lengthOfArrays = values.map((array) => array.length);
+      const arrayLength = Math.max(...lengthOfArrays);
+
+   
+
+      dispatch(
+        saveSheetValues({
+          values,
+          arrayLength,
+          title,
+        })
+      );
+    };
+
+    ws.onerror = (error) => {
+      console.error('WebSocket error:', error);
+    };
+
+    ws.onclose = () => {
+      clearInterval(interval);
+    };
+
+    return () => {
+      ws.close();
+    };
+  },[title, sheetId])
 ```
 
 For showing pie chart I used `victory-native` library. It uses svg inside.
